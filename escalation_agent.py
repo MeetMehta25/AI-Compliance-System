@@ -12,6 +12,11 @@ def init_database():
     - audit_log: records every query (for compliance tracking)
     - tickets: only for escalated queries
     """
+    # Ensure data directory exists before connecting
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+        
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     

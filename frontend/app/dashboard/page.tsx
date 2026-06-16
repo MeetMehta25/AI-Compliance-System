@@ -72,10 +72,19 @@ export default function DashboardPage() {
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
+    const token = localStorage.getItem("access_token");
     try {
       const [ticketsRes, auditRes] = await Promise.all([
-        fetch(`${API_URL}/tickets`),
-        fetch(`${API_URL}/audit-log?limit=50`),
+        fetch(`${API_URL}/tickets`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        }),
+        fetch(`${API_URL}/audit-log?limit=50`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        }),
       ]);
 
       if (!ticketsRes.ok || !auditRes.ok) {

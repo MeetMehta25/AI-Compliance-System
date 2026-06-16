@@ -22,21 +22,30 @@ from escalation_agent import get_all_tickets, get_audit_log
 # Configuration
 # ============================================================
 
-SECRET_KEY = "your-super-secret-key-change-in-production"
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "your-super-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 # ============================================================
-# Simple password hashing (for demo only)
+# Secure password hashing (PBKDF2-SHA256 with random salt)
 # ============================================================
 
 def hash_password(password: str) -> str:
-    """Simple SHA-256 hash for demo purposes."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Secure hash using PBKDF2 with a dynamic salt."""
+    salt = os.urandom(16)
+    db_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+    return f"{salt.hex()}:{db_hash.hex()}"
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify plain password against SHA-256 hash."""
-    return hash_password(plain_password) == hashed_password
+    """Verify plain password against PBKDF2 hash using salt from database."""
+    try:
+        salt_hex, hash_hex = hashed_password.split(":")
+        salt = bytes.fromhex(salt_hex)
+        db_hash = bytes.fromhex(hash_hex)
+        new_hash = hashlib.pbkdf2_hmac('sha256', plain_password.encode('utf-8'), salt, 100000)
+        return new_hash == db_hash
+    except Exception:
+        return False
 
 # ============================================================
 # Hardcoded users (for demo)

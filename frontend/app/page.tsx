@@ -52,6 +52,8 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userEmail, setUserEmail] = useState("employee@corp.com");
+  const [userRole, setUserRole] = useState("employee");
 
   useEffect(() => {
     // Check if user is logged in
@@ -60,6 +62,8 @@ export default function Home() {
       router.push("/login");
     } else {
       setIsAuthenticated(true);
+      setUserEmail(localStorage.getItem("user_email") || "employee@corp.com");
+      setUserRole(localStorage.getItem("user_role") || "employee");
     }
   }, [router]);
 
@@ -179,18 +183,19 @@ export default function Home() {
     "Share customer data with vendor?",
   ];
 
-  // Updated sidebar items with href
+  // Updated sidebar items (removed non-existent pages as dead code, role-restricted dashboard link)
   const sidebarItems = [
     { id: "ask", label: "Ask a question", icon: MessageSquare, href: "/" },
-    { id: "tickets", label: "My tickets", icon: Ticket, href: "/tickets" },
-    {
-      id: "dashboard",
-      label: "Dashboard",
-      icon: LayoutDashboard,
-      href: "/dashboard",
-    },
-    { id: "policies", label: "Policies", icon: FileText, href: "/policies" },
-    { id: "settings", label: "Settings", icon: Settings, href: "/settings" },
+    ...(userRole === "admin"
+      ? [
+          {
+            id: "dashboard",
+            label: "Dashboard",
+            icon: LayoutDashboard,
+            href: "/dashboard",
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -236,8 +241,8 @@ export default function Home() {
               <User size={16} className="text-gray-300" />
             </div>
             <div className="text-sm">
-              <p className="font-medium text-gray-200">Employee</p>
-              <p className="text-xs text-gray-400">employee@corp.com</p>
+              <p className="font-medium text-gray-200 capitalize">{userRole}</p>
+              <p className="text-xs text-gray-400">{userEmail}</p>
             </div>
           </div>
         </div>
