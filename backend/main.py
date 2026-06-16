@@ -6,17 +6,19 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from jose import JWTError, jwt
+import shutil
 
 # Add parent directory to path so we can import the agents
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from orchestrator import process_query
 from escalation_agent import get_all_tickets, get_audit_log
+from retrieval_agent import build_pipeline, POLICIES_FOLDER
 
 # ============================================================
 # Configuration
@@ -273,6 +275,53 @@ def list_audit_log(
     """Get recent audit log entries (admin only)."""
     logs = get_audit_log(limit=limit)
     return logs
+
+@app.get("/policies")
+def list_policies(
+    current_user: User = Depends(get_admin_user)
+):
+    """List all uploaded policy PDFs (admin only)."""
+    folder = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        POLICIES_FOLDER
+    )
+    if not os.path.isdir(folder):
+        return []
+    files = [
+        f for f in os.listdir(folder) if f.lower().endswith(".pdf")
+    ]
+    return sorted(files)
+
+@app.post("/upload-policy")
+async def upload_policy(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_admin_user)
+):
+    """
+    Upload a new PDF policy document (admin only).
+    Saves the file to the policies folder and re-indexes in the background.
+    """
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+
+    folder = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        POLICIES_FOLDER
+    )
+    os.makedirs(folder, exist_ok=True)
+
+    dest = os.path.join(folder, file.filename)
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # Re-index all policies in the background so the upload returns immediately
+    background_tasks.add_task(build_pipeline)
+
+    return {
+        "message": f"'{file.filename}' uploaded successfully. Re-indexing started in background.",
+        "filename": file.filename
+    }
 
 @app.get("/health")
 def health():

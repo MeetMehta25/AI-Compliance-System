@@ -5,20 +5,20 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { 
-  ArrowLeft, 
-  Ticket, 
-  FileText, 
-  AlertTriangle, 
-  CheckCircle,
+import {
+  ArrowLeft,
+  Ticket,
+  FileText,
+  AlertTriangle,
   Clock,
-  TrendingUp,
-  Activity
+  Activity,
+  Upload,
+  X,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-type Ticket = {
+type TicketType = {
   ticket_id: string;
   timestamp: string;
   query: string;
@@ -45,57 +45,51 @@ type Stats = {
 };
 
 export default function DashboardPage() {
-  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [tickets, setTickets] = useState<TicketType[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
+  const [policies, setPolicies] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"tickets" | "audit">("tickets");
+  const [activeTab, setActiveTab] = useState<"tickets" | "audit" | "policies">("tickets");
+
+  // Upload state
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [uploadMessage, setUploadMessage] = useState("");
+
   const router = useRouter();
   const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     const role = localStorage.getItem("user_role");
-    
+
     if (!token) {
       router.push("/login");
     } else if (role !== "admin") {
-      router.push("/"); // Regular employees go to chat
+      router.push("/");
     } else {
       setIsAuthorized(true);
       fetchDashboardData();
     }
   }, [router]);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
   const fetchDashboardData = async () => {
     setIsLoading(true);
     const token = localStorage.getItem("access_token");
     try {
-      const [ticketsRes, auditRes] = await Promise.all([
-        fetch(`${API_URL}/tickets`, {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        }),
-        fetch(`${API_URL}/audit-log?limit=50`, {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        }),
+      const [ticketsRes, auditRes, policiesRes] = await Promise.all([
+        fetch(`${API_URL}/tickets`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/audit-log?limit=50`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/policies`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
       if (!ticketsRes.ok || !auditRes.ok) {
         throw new Error("Failed to fetch dashboard data");
       }
 
-      const ticketsData = await ticketsRes.json();
-      const auditData = await auditRes.json();
-
-      setTickets(ticketsData);
-      setAuditLog(auditData);
+      setTickets(await ticketsRes.json());
+      setAuditLog(await auditRes.json());
+      if (policiesRes.ok) setPolicies(await policiesRes.json());
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
@@ -103,13 +97,37 @@ export default function DashboardPage() {
     }
   };
 
-  const getStats = (): Stats => {
-    const totalTickets = tickets.length;
-    const pendingTickets = tickets.filter((t) => t.status === "Pending Review").length;
-    const highRiskQueries = auditLog.filter((a) => a.risk_level === "High").length;
-    const totalQueries = auditLog.length;
-    return { totalTickets, pendingTickets, highRiskQueries, totalQueries };
+  const handleUpload = async () => {
+    if (!uploadFile) return;
+    setUploadStatus("uploading");
+    setUploadMessage("");
+    const token = localStorage.getItem("access_token");
+    const formData = new FormData();
+    formData.append("file", uploadFile);
+    try {
+      const res = await fetch(`${API_URL}/upload-policy`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Upload failed");
+      setUploadStatus("success");
+      setUploadMessage(data.message);
+      setUploadFile(null);
+      setTimeout(() => fetchDashboardData(), 1200);
+    } catch (err: any) {
+      setUploadStatus("error");
+      setUploadMessage(err.message || "Upload failed");
+    }
   };
+
+  const getStats = (): Stats => ({
+    totalTickets: tickets.length,
+    pendingTickets: tickets.filter((t) => t.status === "Pending Review").length,
+    highRiskQueries: auditLog.filter((a) => a.risk_level === "High").length,
+    totalQueries: auditLog.length,
+  });
 
   const stats = getStats();
 
@@ -139,16 +157,14 @@ export default function DashboardPage() {
     }
   };
 
-  const formatDate = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleString("en-IN", {
+  const formatDate = (timestamp: string) =>
+    new Date(timestamp).toLocaleString("en-IN", {
       day: "2-digit",
       month: "short",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     });
-  };
 
   if (isLoading) {
     return (
@@ -164,10 +180,7 @@ export default function DashboardPage() {
       <div className="border-b border-[#3c3f45] bg-[#2b2d31] px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="text-gray-400 hover:text-gray-200 transition"
-            >
+            <Link href="/" className="text-gray-400 hover:text-gray-200 transition">
               <ArrowLeft size={20} />
             </Link>
             <h1 className="text-xl font-semibold">Compliance Dashboard</h1>
@@ -224,26 +237,21 @@ export default function DashboardPage() {
 
         {/* Tab Navigation */}
         <div className="flex gap-2 mb-4 border-b border-[#3c3f45]">
-          <button
-            onClick={() => setActiveTab("tickets")}
-            className={`px-4 py-2 text-sm font-medium transition ${
-              activeTab === "tickets"
-                ? "text-indigo-400 border-b-2 border-indigo-400"
-                : "text-gray-400 hover:text-gray-200"
-            }`}
-          >
-            Tickets ({tickets.length})
-          </button>
-          <button
-            onClick={() => setActiveTab("audit")}
-            className={`px-4 py-2 text-sm font-medium transition ${
-              activeTab === "audit"
-                ? "text-indigo-400 border-b-2 border-indigo-400"
-                : "text-gray-400 hover:text-gray-200"
-            }`}
-          >
-            Audit Log ({auditLog.length})
-          </button>
+          {(["tickets", "audit", "policies"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 text-sm font-medium capitalize transition ${
+                activeTab === tab
+                  ? "text-indigo-400 border-b-2 border-indigo-400"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              {tab === "tickets" && `Tickets (${tickets.length})`}
+              {tab === "audit" && `Audit Log (${auditLog.length})`}
+              {tab === "policies" && `Policies (${policies.length})`}
+            </button>
+          ))}
         </div>
 
         {/* Tickets Table */}
@@ -312,13 +320,15 @@ export default function DashboardPage() {
                         <td className="px-4 py-3 text-gray-300 max-w-xs truncate">{entry.query}</td>
                         <td className="px-4 py-3">{getRiskBadge(entry.risk_level)}</td>
                         <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium border ${
-                            entry.compliance_status === "Approved" 
-                              ? "bg-green-900/50 text-green-300 border-green-800" 
-                              : entry.compliance_status === "Restricted"
-                              ? "bg-yellow-900/50 text-yellow-300 border-yellow-800"
-                              : "bg-red-900/50 text-red-300 border-red-800"
-                          }`}>
+                          <span
+                            className={`px-2 py-0.5 rounded text-xs font-medium border ${
+                              entry.compliance_status === "Approved"
+                                ? "bg-green-900/50 text-green-300 border-green-800"
+                                : entry.compliance_status === "Restricted"
+                                ? "bg-yellow-900/50 text-yellow-300 border-yellow-800"
+                                : "bg-red-900/50 text-red-300 border-red-800"
+                            }`}
+                          >
                             {entry.compliance_status}
                           </span>
                         </td>
@@ -329,6 +339,97 @@ export default function DashboardPage() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Policies Tab */}
+        {activeTab === "policies" && (
+          <div className="space-y-4">
+            {/* Upload Card */}
+            <div className="bg-[#2b2d31] border border-[#3c3f45] rounded-lg p-6">
+              <h3 className="text-sm font-semibold text-gray-200 mb-4 flex items-center gap-2">
+                <Upload size={16} className="text-indigo-400" />
+                Upload New Policy
+              </h3>
+              <div className="flex items-center gap-3">
+                <label className="flex-1 cursor-pointer">
+                  <div className="border-2 border-dashed border-[#3c3f45] hover:border-indigo-500 rounded-lg px-4 py-3 text-sm text-gray-400 hover:text-gray-200 transition flex items-center gap-2">
+                    <FileText size={16} />
+                    {uploadFile ? uploadFile.name : "Click to select a PDF file…"}
+                  </div>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      setUploadFile(e.target.files?.[0] || null);
+                      setUploadStatus("idle");
+                      setUploadMessage("");
+                    }}
+                  />
+                </label>
+                {uploadFile && (
+                  <button
+                    onClick={() => {
+                      setUploadFile(null);
+                      setUploadStatus("idle");
+                      setUploadMessage("");
+                    }}
+                    className="text-gray-500 hover:text-red-400 transition"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+                <button
+                  onClick={handleUpload}
+                  disabled={!uploadFile || uploadStatus === "uploading"}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg transition flex items-center gap-2"
+                >
+                  <Upload size={14} />
+                  {uploadStatus === "uploading" ? "Uploading…" : "Upload"}
+                </button>
+              </div>
+              {uploadMessage && (
+                <p className={`mt-3 text-xs ${uploadStatus === "success" ? "text-green-400" : "text-red-400"}`}>
+                  {uploadMessage}
+                </p>
+              )}
+              {uploadStatus === "success" && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Re-indexing is running in the background — queries will reflect the new policy shortly.
+                </p>
+              )}
+            </div>
+
+            {/* Existing Policies List */}
+            <div className="bg-[#2b2d31] border border-[#3c3f45] rounded-lg overflow-hidden">
+              {policies.length === 0 ? (
+                <div className="p-8 text-center text-gray-400">
+                  <FileText className="mx-auto h-12 w-12 text-gray-600 mb-3" />
+                  <p>No policy files found</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-[#313338] border-b border-[#3c3f45]">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-gray-400 font-medium w-12">#</th>
+                      <th className="px-4 py-3 text-left text-gray-400 font-medium">Filename</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {policies.map((name, i) => (
+                      <tr key={name} className="border-b border-[#3c3f45] hover:bg-[#313338] transition">
+                        <td className="px-4 py-3 text-gray-500">{i + 1}</td>
+                        <td className="px-4 py-3 text-gray-300 flex items-center gap-2">
+                          <FileText size={14} className="text-indigo-400 shrink-0" />
+                          {name}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         )}
       </div>
