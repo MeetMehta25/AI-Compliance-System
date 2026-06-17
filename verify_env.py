@@ -1,6 +1,11 @@
-# verify_env.py
 import os
 import sys
+
+# Reconfigure stdout/stderr to use UTF-8 encoding (prevents UnicodeEncodeError on Windows)
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
 
 def verify_deployment():
     print("=" * 60)
@@ -32,8 +37,14 @@ def verify_deployment():
                 key, val = line.split("=", 1)
                 env_vars[key.strip()] = val.strip()
 
-    required_vars = ["GEMINI_API_KEY", "JWT_SECRET_KEY"]
-    missing_vars = [var for var in required_vars if not env_vars.get(var) or "your_" in env_vars.get(var) or "generate_" in env_vars.get(var)]
+    required_vars = ["GEMINI_API_KEY", "JWT_SECRET_KEY", "ADMIN_PASSWORD", "EMPLOYEE_PASSWORD", "FRONTEND_URL"]
+    missing_vars = [
+        var for var in required_vars 
+        if not env_vars.get(var) 
+        or "your_" in env_vars.get(var) 
+        or "generate_" in env_vars.get(var) 
+        or "change_this_" in env_vars.get(var)
+    ]
 
     if missing_vars:
         print(f"❌ Error: The following environment variables are missing or placeholders in your '.env' file:")

@@ -1,115 +1,116 @@
 # ComplianceAI Deployment Guide
 
-This guide describes how to run and deploy **ComplianceAI** on local servers or cloud environments using **Docker Compose** or directly from source.
+This guide describes how to deploy **ComplianceAI** in production using **Render** for the FastAPI backend and **Vercel** for the Next.js frontend, as well as how to run it locally.
 
 ---
 
-## Prerequisites
+## Production Architecture
 
-Before starting, make sure you have the following installed:
-- **Git**
-- **Docker** and **Docker Compose** (Recommended)
-- **Python 3.11** (If running without Docker)
-- **Node.js 20+** (If running without Docker)
+- **Backend (FastAPI)**: Deployed as a Dockerized Web Service on **Render**. It mounts a **Persistent Disk** to store the SQLite database and ChromaDB vector embeddings so your indexed policy documents persist across restarts.
+- **Frontend (Next.js)**: Deployed on **Vercel** for optimal speed, performance, and globally distributed edge serving.
 
 ---
 
-## 1. Quick Start with Docker Compose (Recommended)
+## 1. Backend Deployment on Render
 
-Docker Compose starts the backend server, builds/indexes your documents, and launches the frontend interface in isolated containers.
+You can deploy the backend using the Render Blueprint configuration (`render.yaml`) or manually via the Render dashboard.
 
-### Step A: Configure Environment Variables
-Copy the template configuration file:
-```bash
-cp .env.example .env
-```
-Open the newly created `.env` file and replace the placeholder values:
-- `GEMINI_API_KEY`: Get a free key from [Google AI Studio](https://aistudio.google.com/).
-- `JWT_SECRET_KEY`: Set a secure random string (e.g., run `openssl rand -hex 32` to generate one).
-- `NEXT_PUBLIC_API_URL`: Keep as `http://localhost:8000` unless you change the backend host port.
+### Option A: Using Render Blueprints (Recommended)
+Render Blueprints allow you to configure infrastructure as code.
+1. Connect your repository to Render.
+2. In the Render Dashboard, click **New** -> **Blueprint**.
+3. Select this repository. Render will read the `render.yaml` file automatically.
+4. Input the required environment variables when prompted:
+   - `GEMINI_API_KEY`: Get a key from [Google AI Studio](https://aistudio.google.com/).
+   - `JWT_SECRET_KEY`: Render will auto-generate a secure random hex key.
+   - `ADMIN_PASSWORD`: A secure password for the Admin account (`admin@corp.com`).
+   - `EMPLOYEE_PASSWORD`: A secure password for the Employee account (`employee@corp.com`).
+   - `FRONTEND_URL`: Leave blank initially, and update once your Vercel frontend is deployed.
+5. Click **Apply**. Render will automatically build the backend Docker container and mount a persistent 1GB disk at `/app/data`.
 
-### Step B: Add Policy Documents
-1. Place any policy PDF documents you want ComplianceAI to parse inside the folder:
+### Option B: Manual Web Service Setup
+If you prefer to configure the service manually on the Render dashboard:
+1. Click **New** -> **Web Service**.
+2. Connect your Git repository.
+3. Choose **Docker** as the Runtime (Render will automatically detect the root `Dockerfile`).
+4. Select the **Starter** instance type or higher (necessary to attach persistent disks).
+5. Add the following **Environment Variables**:
+   - `GEMINI_API_KEY` (Your Google Gemini Key)
+   - `JWT_SECRET_KEY` (Generate with `openssl rand -hex 32` or a password generator)
+   - `ADMIN_PASSWORD` (Password for admin@corp.com)
+   - `EMPLOYEE_PASSWORD` (Password for employee@corp.com)
+   - `FRONTEND_URL` (URL of your Vercel frontend)
+6. Under **Advanced Settings**, click **Add Disk**:
+   - **Name**: `backend-data`
+   - **Mount Path**: `/app/data`
+   - **Size**: `1GB` (or more as needed)
+7. Click **Create Web Service**.
+
+---
+
+## 2. Frontend Deployment on Vercel
+
+Vercel provides native, zero-config support for Next.js applications.
+
+1. Go to the [Vercel Dashboard](https://vercel.com/) and click **Add New** -> **Project**.
+2. Import your Git repository.
+3. In the **Configure Project** step:
+   - **Framework Preset**: Next.js
+   - **Root Directory**: Click *Edit* and select the `frontend` folder.
+4. Expand **Environment Variables** and add:
+   - Key: `NEXT_PUBLIC_API_URL`
+   - Value: The URL of your deployed Render backend (e.g., `https://compliance-backend.onrender.com`).
+     > [!IMPORTANT]
+     > Do not include a trailing slash in the backend URL.
+5. Click **Deploy**. Vercel will build the frontend and host it at a public `.vercel.app` domain.
+6. Once the frontend deployment finishes, copy its URL, go back to your **Render Backend Settings**, and set the `FRONTEND_URL` environment variable to this frontend URL to restrict CORS access securely.
+
+---
+
+## 3. Local Development (Optional)
+
+### Running with Docker Compose
+To run both backend and frontend locally in isolated containers:
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
    ```
-   data/policies/
-   ```
-2. Run the validator tool to check your configurations:
+2. Fill in `GEMINI_API_KEY` and define passwords in `.env`.
+3. Put a test policy PDF document inside `data/policies/`.
+4. Run the validator:
    ```bash
    python verify_env.py
    ```
+5. Build and launch:
+   ```bash
+   docker compose up --build -d
+   ```
+6. Access the frontend at `http://localhost:3000` and backend at `http://localhost:8000`.
 
-### Step C: Build and Run
-Start the containers in detached (background) mode:
-```bash
-docker compose up --build -d
-```
-
-### Step D: Access the App
-- **Web App**: Open [http://localhost:3000](http://localhost:3000) in your browser.
-- **Backend API**: Check health at [http://localhost:8000/health](http://localhost:8000/health).
-- **Interactive API Docs**: View Swagger docs at [http://localhost:8000/docs](http://localhost:8000/docs).
-
-To stop the containers:
-```bash
-docker compose down
-```
-
----
-
-## 2. Running Manually from Source
-
-If you prefer to run both applications directly on your host machine, follow these steps:
-
-### Step A: Set Environment Variables
-Set these variables in your shell environment, or place a `.env` file inside the root workspace and use a package like `python-dotenv`.
-
-### Step B: Setup Backend
-1. Create and activate a Python virtual environment:
+### Running Manually from Source
+1. **Backend**:
    ```bash
    python -m venv venv
-   # On Windows:
-   venv\Scripts\activate
-   # On Linux/macOS:
-   source venv/bin/activate
-   ```
-2. Install dependencies:
-   ```bash
+   # Activate virtualenv (Windows: venv\Scripts\activate | Unix: source venv/bin/activate)
    pip install -r backend/requirements.txt
-   ```
-3. Place company policies in `data/policies/` (PDF files only).
-4. Run the document pipeline indexing:
-   ```bash
+   # Run retrieval agent to index policies
    python retrieval_agent.py
-   ```
-5. Start the FastAPI server:
-   ```bash
+   # Start server
    uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
    ```
-
-### Step C: Setup Frontend
-1. Navigate to the frontend directory:
+2. **Frontend**:
    ```bash
    cd frontend
-   ```
-2. Install Node packages:
-   ```bash
    npm install
+   # Create frontend/.env.local with NEXT_PUBLIC_API_URL=http://localhost:8000
+   npm run dev
    ```
-3. Set your environment variables in `frontend/.env.local`:
-   ```env
-   NEXT_PUBLIC_API_URL=http://localhost:8000
-   ```
-4. Build and start:
-   ```bash
-   npm run build
-   npm run start
-   ```
-   *(For development mode, run `npm run dev` instead)*.
 
 ---
 
-## 3. Production Readiness Checks
+## 4. Post-Deployment Verification
 
-- **Persistent Vector Database**: The SQLite ChromaDB data is mounted on a named Docker volume (`backend-data`) so your search indexes persist across container restarts.
-- **CORS Configuration**: If deploying the backend on a different domain than the frontend, update `allow_origins=["*"]` in `backend/main.py` to target your frontend URL specifically.
-- **Background Re-indexing**: When admins upload new policy PDFs via the web interface, the pipeline automatically rebuilds the search database in the background without causing service interruptions.
+1. Log in to the frontend dashboard using `admin@corp.com` and the secure `ADMIN_PASSWORD` you set in the environment.
+2. Go to the Admin Dashboard and verify you can upload a PDF policy.
+3. Check the logs on the Render backend to confirm the background re-indexing task runs successfully.
+4. Try typing a query into the employee workspace to verify AI responses, citations, and confidence scores are functioning correctly.

@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: compliance-backend
+    env: docker
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    plan: starter # Persistent disks require Starter plan or above
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+        placeholder: "Your Google Gemini API Key"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        sync: false
+        placeholder: "Production password for admin@corp.com"
+      - key: EMPLOYEE_PASSWORD
+        sync: false
+        placeholder: "Production password for employee@corp.com"
+      - key: FRONTEND_URL
+        sync: false
+        placeholder: "Vercel Frontend URL (e.g., https://your-frontend.vercel.app)"
+    disk:
+      name: backend-data
+      mountPath: /app/data
+      sizeGB: 1

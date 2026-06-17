@@ -75,7 +75,11 @@ data/chroma_db/
 data/compliance.db
 
 # PDFs (optional – if you don't want to commit large policy files)
-# data/policies/*.pdf
+data/policies/*.pdf
+
+# Test files containing credentials/secrets
+test_demo.py
+test_gemini.py
 
 # ===============================
 # Node.js / Next.js (Frontend)
