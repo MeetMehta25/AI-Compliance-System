@@ -39,6 +39,8 @@ type Message = {
   citations?: Citation[];
   needs_escalation?: boolean;
   ticket?: TicketInfo | null;
+  confidence?: number | null;
+  is_ambiguous?: boolean;
   timestamp: Date;
 };
 
@@ -179,7 +181,11 @@ export default function Home() {
         body: JSON.stringify({ query: input }),
       });
 
-      if (!response.ok) throw new Error("API request failed");
+      if (!response.ok) {
+        // Attach status so the catch block can produce a specific message
+        const err = Object.assign(new Error("API request failed"), { status: response.status });
+        throw err;
+      }
 
       const data = await response.json();
 
@@ -192,17 +198,30 @@ export default function Home() {
         citations: data.citations,
         needs_escalation: data.needs_escalation,
         ticket: data.ticket,
+        confidence: data.confidence ?? null,
+        is_ambiguous: data.is_ambiguous ?? false,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(error);
+      let errorMsg = "Cannot reach the server. Check your connection and try again.";
+      if (error instanceof Response || (error && typeof error === "object" && "status" in error)) {
+        const status = (error as { status: number }).status;
+        if (status === 401 || status === 403) errorMsg = "Your session has expired. Please log in again.";
+        else if (status === 429) errorMsg = "The AI is rate-limited right now. Please wait 30 seconds and try again.";
+        else if (status === 500) errorMsg = "Something went wrong on our end. Your question was not processed.";
+      }
+      // Also handle fetch errors with a status on the Response object
+      if (error instanceof Error && error.message === "API request failed") {
+        errorMsg = "Something went wrong on our end. Your question was not processed.";
+      }
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           type: "assistant",
-          content: "Sorry, I encountered an error. Please try again later.",
+          content: errorMsg,
           timestamp: new Date(),
         },
       ]);
@@ -402,31 +421,81 @@ export default function Home() {
                 >
                   {msg.type === "assistant" ? (
                     <div className="space-y-3">
+                      {/* Status + Risk badges */}
                       {msg.decision && (
-                        <div className="flex gap-2 items-center">
+                        <div className="flex gap-2 items-center flex-wrap">
                           {getStatusBadge(msg.decision.compliance_status)}
                           {getRiskBadge(msg.decision.risk_level)}
                         </div>
                       )}
+
+                      {/* Confidence bar */}
+                      {msg.confidence != null && (
+                        <div>
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-xs text-gray-400">Confidence</span>
+                            <span
+                              className={`text-xs font-semibold ${
+                                msg.confidence >= 0.8
+                                  ? "text-green-400"
+                                  : msg.confidence >= 0.5
+                                  ? "text-yellow-400"
+                                  : "text-red-400"
+                              }`}
+                            >
+                              {Math.round(msg.confidence * 100)}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-[#1e1f22] rounded-full h-1.5">
+                            <div
+                              className={`h-1.5 rounded-full transition-all ${
+                                msg.confidence >= 0.8
+                                  ? "bg-green-500"
+                                  : msg.confidence >= 0.5
+                                  ? "bg-yellow-500"
+                                  : "bg-red-500"
+                              }`}
+                              style={{ width: `${Math.round(msg.confidence * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Ambiguity banner */}
+                      {msg.is_ambiguous && (
+                        <div className="flex items-start gap-2 px-3 py-2 bg-amber-900/30 border border-amber-700/50 rounded-lg">
+                          <span className="text-amber-400 text-xs mt-0.5">⚠️</span>
+                          <p className="text-xs text-amber-300 leading-relaxed">
+                            This question is ambiguous. The answer below is based on the closest matching policy. Consider clarifying your question for a more precise answer.
+                          </p>
+                        </div>
+                      )}
+
                       <p className="text-sm leading-relaxed">
                         {msg.explanation || msg.content}
                       </p>
+
+                      {/* Citations */}
                       {msg.citations && msg.citations.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-[#3c3f45]">
-                          <p className="text-xs font-semibold text-gray-400 mb-2">
-                            Sources cited
+                          <p className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1">
+                            <ExternalLink size={11} /> Sources cited
                           </p>
-                          <ul className="space-y-1">
+                          <div className="flex flex-wrap gap-2">
                             {msg.citations.map((c, i) => (
-                              <li
+                              <div
                                 key={i}
-                                className="text-xs text-indigo-400 flex items-center gap-1"
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#1e1f22] border border-[#3c3f45] rounded-lg"
                               >
-                                <ExternalLink size={12} />
-                                {c.filename} — Section {c.section}
-                              </li>
+                                <span className="text-xs text-gray-300 font-medium">
+                                  {c.filename.replace(/\.pdf$/i, "")}
+                                </span>
+                                <span className="text-xs bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 px-1.5 py-0.5 rounded font-mono">
+                                  § {c.section}
+                                </span>
+                              </div>
                             ))}
-                          </ul>
+                          </div>
                         </div>
                       )}
                       {msg.needs_escalation && msg.ticket && (
@@ -447,12 +516,13 @@ export default function Home() {
           )}
           {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-[#313338] border border-[#3c3f45] rounded-lg p-4">
+              <div className="bg-[#313338] border border-[#3c3f45] rounded-lg px-4 py-3 flex items-center gap-3">
                 <div className="flex space-x-1">
                   <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
                   <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-100"></div>
                   <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-200"></div>
                 </div>
+                <span className="text-xs text-gray-400">Analysing policy documents…</span>
               </div>
             </div>
           )}

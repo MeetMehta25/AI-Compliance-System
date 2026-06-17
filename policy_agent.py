@@ -59,6 +59,8 @@ Instructions:
 2. Always cite the source(s) you used, like: (Data Protection Policy, Section 4.3)
 3. If the answer is not clearly stated in the excerpts, say "The policy does not explicitly address this, but based on similar sections..." or ask for clarification.
 4. Keep your answer concise (2-4 sentences).
+5. Set confidence to a value between 0.0 and 1.0 reflecting how directly the policy excerpts answer the question (1.0 = explicitly covered, 0.0 = not covered at all).
+6. Set is_ambiguous to true if the question is vague or missing context that would change the answer.
 
 Now provide your answer in the following JSON format:
 {{
@@ -66,7 +68,9 @@ Now provide your answer in the following JSON format:
   "citations": [
     {{"filename": "example.pdf", "section": "3.2"}},
     ...
-  ]
+  ],
+  "confidence": 0.85,
+  "is_ambiguous": false
 }}
 """
     
@@ -88,7 +92,9 @@ Now provide your answer in the following JSON format:
         # Fallback: return plain text as explanation
         result = {
             "explanation": response_text,
-            "citations": []
+            "citations": [],
+            "confidence": 0.5,
+            "is_ambiguous": False
         }
     
     return result

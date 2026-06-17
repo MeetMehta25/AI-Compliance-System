@@ -38,6 +38,8 @@ def process_query(query: str) -> dict:
         },
         "explanation": interpretation.get("explanation", "No explanation available"),
         "citations": interpretation.get("citations", []),
+        "confidence": interpretation.get("confidence", None),
+        "is_ambiguous": interpretation.get("is_ambiguous", False),
         "needs_escalation": risk_result.get("needs_escalation", False),
         "ticket": ticket_info,  # None or {"ticket_id": "...", "status": "..."}
         "retrieved_chunks": [  # Optional: for debugging/demo transparency

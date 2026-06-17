@@ -119,6 +119,8 @@ class QueryResponse(BaseModel):
     needs_escalation: bool
     ticket: Optional[TicketInfo] = None
     retrieved_chunks: Optional[List[Dict[str, Any]]] = None
+    confidence: Optional[float] = None
+    is_ambiguous: Optional[bool] = None
 
 class Ticket(BaseModel):
     ticket_id: str
@@ -257,7 +259,10 @@ def compliance_query(
         result = process_query(request.query)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        err = str(e)
+        if "429" in err:
+            raise HTTPException(status_code=429, detail="The AI is rate-limited. Please wait a moment and try again.")
+        raise HTTPException(status_code=500, detail="Something went wrong processing your query. Please try again.")
 
 @app.get("/tickets", response_model=List[Ticket])
 def list_tickets(
